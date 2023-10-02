@@ -10,7 +10,7 @@ function update {
 			if [ -f "$folder/.extrinsic-hashcommit" ]
 			then
 				read local_hashcommit < "$folder/.extrinsic-hashcommit"
-				if [ $local_hashcommit="$headcommit" ]
+				if [ "$local_hashcommit"="$headcommit" ]
 				then
 					echo "Not updating $1; already at HEAD"
 					return;
@@ -47,7 +47,7 @@ function repo_head {
 	git ls-remote -q $1 2> /dev/null | grep "HEAD" | sed -E "s/([0-9a-f]+)\WHEAD/\1/"
 }
 
-for source in lib/*/.extrinsic-source
+for source in */.extrinsic-source
 do
 	if [ -r "$source" ]
 	then
