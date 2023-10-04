@@ -1,4 +1,8 @@
 #!/bin/bash
+
+# Extrinsic is licensed under the Apache License 2.0 license
+# https://github.com/TRP-Solutions/extrinsic/blob/main/LICENSE
+
 function update {
 	if [ $(repo_exists $2) = 200 ]
 	then
