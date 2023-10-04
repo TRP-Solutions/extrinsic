@@ -6,11 +6,6 @@ function update {
 		then
 			local origin=`pwd`
 			local folder="`pwd`/$1"
-			if svn_modifications "$folder"
-			then
-				echo "$1: [NO UPDATE] SVN modifications detected"
-				return;
-			fi
 			local headcommit=$(repo_head $2)
 			if [ -f "$folder/.extrinsic-hashcommit" ]
 			then
@@ -23,6 +18,11 @@ function update {
 			fi
 			if [ -d "$folder" ]
 			then
+				if svn_modifications "$folder"
+				then
+					echo "$1: [NO UPDATE] SVN modifications detected"
+					return;
+				fi
 				echo "$1: [UPDATING]"
 				rm -rf "$folder"
 				mkdir "$folder"
