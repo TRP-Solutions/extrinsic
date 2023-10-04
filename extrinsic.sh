@@ -69,7 +69,7 @@ function repo_exists {
 }
 
 function repo_head {
-	git ls-remote -q $1 2> /dev/null | grep "HEAD" | sed -E "s/([0-9a-f]+)\WHEAD/\1/"
+	git ls-remote -q $1 2> /dev/null | grep "HEAD" | (read hash head; echo $hash)
 }
 
 for source in */.extrinsic-source
