@@ -6,19 +6,24 @@ function update {
 		then
 			local origin=`pwd`
 			local folder="`pwd`/$1"
+			if svn_modifications "$folder"
+			then
+				echo "$1: [NO UPDATE] SVN modifications detected"
+				return;
+			fi
 			local headcommit=$(repo_head $2)
 			if [ -f "$folder/.extrinsic-hashcommit" ]
 			then
 				read local_hashcommit < "$folder/.extrinsic-hashcommit"
-				if [ "$local_hashcommit"="$headcommit" ]
+				if [ "$local_hashcommit" = "$headcommit" ]
 				then
-					echo "Not updating $1; already at HEAD"
+					echo "$1: [NO UPDATE] Already at HEAD"
 					return;
 				fi
 			fi
 			if [ -d "$folder" ]
 			then
-				echo "Updating $1"
+				echo "$1: [UPDATING]"
 				rm -rf "$folder"
 				mkdir "$folder"
 				git clone --quiet --no-checkout $2 "$folder/git"
@@ -37,6 +42,26 @@ function update {
 			fi
 		fi
 	fi
+}
+
+function svn_modifications {
+	local is_modified=1 #false
+	# svn info $1 return error code in $? if $1 is not an svn repository
+	svn info $1 > /dev/null 2>&1
+	if [ $? = 1 ]
+	then
+		# directory is not a SVN repository
+		return 1
+	fi
+	while read status file
+	do
+		if [ "$file" = "" ] || [ "$file" = "$1" ] || [ "$file" = "$1/.extrinsic-source" ] || [ "$file" = "$1/.extrinsic-hashcommit" ]
+		then
+			continue
+		fi
+		is_modified=0
+	done <<< `svn status "$1"`
+	return $is_modified
 }
 
 function repo_exists {
