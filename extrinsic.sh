@@ -9,15 +9,35 @@ function update {
 		if [ -n "$1" ]
 		then
 			local origin=`pwd`
-			local folder="`pwd`/$1"
-			local headcommit=$(repo_head $2)
-			if [ -f "$folder/.extrinsic-hashcommit" ]
+			if [ "$1" = "." ]
 			then
-				read local_hashcommit < "$folder/.extrinsic-hashcommit"
-				if [ "$local_hashcommit" = "$headcommit" ]
+				local folder="$origin"
+				cd "$origin/.."
+			else
+				local folder="$origin/$1"
+			fi
+			if [ -n "$4" ]
+			then
+				local headcommit=$(repo_branch $2 $4)
+				if [ -f "$folder/.extrinsic-hashcommit" ]
 				then
-					echo "$1: [NO UPDATE] Already at HEAD"
-					return;
+					read local_hashcommit < "$folder/.extrinsic-hashcommit"
+					if [ "$local_hashcommit" = "$headcommit" ]
+					then
+						echo "$1: [NO UPDATE] Already at HEAD of branch $4"
+						return;
+					fi
+				fi
+			else
+				local headcommit=$(repo_head $2)
+				if [ -f "$folder/.extrinsic-hashcommit" ]
+				then
+					read local_hashcommit < "$folder/.extrinsic-hashcommit"
+					if [ "$local_hashcommit" = "$headcommit" ]
+					then
+						echo "$1: [NO UPDATE] Already at HEAD"
+						return;
+					fi
 				fi
 			fi
 			if [ -d "$folder" ]
@@ -28,19 +48,29 @@ function update {
 					return;
 				fi
 				echo "$1: [UPDATING]"
-				rm -rf "$folder"
-				mkdir "$folder"
+				rm -rf "$folder/*"
+				#mkdir "$folder"
 				git clone --quiet --no-checkout $2 "$folder/git"
 				cd "$folder/git"
 				if [ -n "$3" ]
 				then
 					git sparse-checkout set --no-cone "$3"
 				fi
-				git checkout -q
+				if [ -n "$4" ]
+				then
+					git checkout -q $4
+				else
+					git checkout -q
+				fi
 				cd "$folder"
 				mv "$folder/git/$3/"* "$folder/"
 				rm -rf "$folder/git/"
-				echo "$2 $3" > .extrinsic-source
+				if [ -n "$4" ]
+				then
+					echo "$2 $3 $4" > .extrinsic-source
+				else
+					echo "$2 $3" > .extrinsic-source
+				fi
 				echo $headcommit > .extrinsic-hashcommit
 				cd $origin
 			fi
@@ -76,21 +106,39 @@ function repo_head {
 	git ls-remote -q $1 2> /dev/null | grep "HEAD" | (read hash head; echo $hash)
 }
 
-for source in */.extrinsic-source
-do
-	if [ -r "$source" ]
+function repo_branch {
+	git ls-remote -q $1 2> /dev/null | grep "refs/heads/$2" | (read hash branch; echo $hash)
+}
+
+if [ -r .extrinsic-source ]
+then
+	while read repository subfolder
+	do
+		update . $repository $subfolder
+	done < .extrinsic-source
+	# handle last line
+	if [ -n "$repository" ]
 	then
-		while read repository subfolder
-		do
-			update ${source%/.extrinsic-source} $repository $subfolder
-		done < "$source"
-		# handle last line
-		if [ -n "$repository" ]
-		then
-			update ${source%/.extrinsic-source} $repository $subfolder
-		fi
-	else
-		echo "Error: Can't read " $source
-		exit 1
+		update . $repository $subfolder
 	fi
-done
+	cd .
+else
+	for source in */.extrinsic-source
+	do
+		if [ -r "$source" ]
+		then
+			while read repository subfolder
+			do
+				update ${source%/.extrinsic-source} $repository $subfolder
+			done < "$source"
+			# handle last line
+			if [ -n "$repository" ]
+			then
+				update ${source%/.extrinsic-source} $repository $subfolder
+			fi
+		else
+			echo "Error: Can't read " $source
+			exit 1
+		fi
+	done
+fi
