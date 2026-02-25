@@ -3,82 +3,104 @@
 # Extrinsic is licensed under the Apache License 2.0 license
 # https://github.com/TRP-Solutions/extrinsic/blob/main/LICENSE
 
-function update {
-	if [ $(repo_exists $2) = 200 ]
+function do_update {
+	local name="$1"
+	local repository="$2"
+	local subfolder="$3"
+	local branch="$4"
+	local folder="$5"
+
+	if [ $refresh_arg = 0 ]
 	then
-		if [ -n "$1" ]
+		if [ -n "$branch" ]
+		then
+			local headcommit=$(repo_branch "$repository" "$branch")
+			if [ -f "$folder/.extrinsic-hashcommit" ]
+			then
+				read local_hashcommit < "$folder/.extrinsic-hashcommit"
+				if [ "$local_hashcommit" = "$headcommit" ]
+				then
+					echo "$name: [NO UPDATE] Already at HEAD of branch $branch"
+					return;
+				fi
+			fi
+		else
+			local headcommit=$(repo_head "$repository")
+			if [ -f "$folder/.extrinsic-hashcommit" ]
+			then
+				read local_hashcommit < "$folder/.extrinsic-hashcommit"
+				if [ "$local_hashcommit" = "$headcommit" ]
+				then
+					echo "$name: [NO UPDATE] Already at HEAD"
+					return;
+				fi
+			fi
+		fi
+	fi
+	if [ -d "$folder" ]
+	then
+		if svn_modifications "$folder"
+		then
+			echo "$name: [NO UPDATE] SVN modifications detected"
+			return;
+		fi
+		echo "$name: [UPDATING]"
+		rm -rf "$folder"/*
+
+		#mkdir "$folder"
+		git clone --quiet --no-checkout "$repository" "$folder/git"
+		cd "$folder/git"
+		if [ -n "$subfolder" ]
+		then
+			git sparse-checkout set --no-cone "$subfolder"
+		fi
+		if [ -n "$branch" ]
+		then
+			git checkout -q $branch
+		else
+			git checkout -q
+		fi
+		cd "$folder"
+		mv -f "$folder/git/$subfolder/"* "$folder/"
+		rm -rf "$folder/git/"
+		if [ -n "$branch" ]
+		then
+			echo "$repository $subfolder $branch" > .extrinsic-source
+		else
+			echo "$repository $subfolder" > .extrinsic-source
+		fi
+		echo $headcommit > .extrinsic-hashcommit
+	fi
+}
+
+function update {
+	local name="$1"
+	local repository="$2"
+	local subfolder="$3"
+	local branch="$4"
+	if [ $(repo_exists "$repository") = 200 ]
+	then
+		if [ -n "$name" ]
 		then
 			local origin=`pwd`
-			if [ "$1" = "." ]
+			if [ "$name" = "." ]
 			then
 				local folder="$origin"
 				cd "$origin/.."
 			else
-				local folder="$origin/$1"
+				local folder="$origin/$name"
 			fi
-			if [ -n "$4" ]
-			then
-				local headcommit=$(repo_branch $2 $4)
-				if [ -f "$folder/.extrinsic-hashcommit" ]
-				then
-					read local_hashcommit < "$folder/.extrinsic-hashcommit"
-					if [ "$local_hashcommit" = "$headcommit" ]
-					then
-						echo "$1: [NO UPDATE] Already at HEAD of branch $4"
-						return;
-					fi
-				fi
-			else
-				local headcommit=$(repo_head $2)
-				if [ -f "$folder/.extrinsic-hashcommit" ]
-				then
-					read local_hashcommit < "$folder/.extrinsic-hashcommit"
-					if [ "$local_hashcommit" = "$headcommit" ]
-					then
-						echo "$1: [NO UPDATE] Already at HEAD"
-						return;
-					fi
-				fi
-			fi
-			if [ -d "$folder" ]
-			then
-				if svn_modifications "$folder"
-				then
-					echo "$1: [NO UPDATE] SVN modifications detected"
-					return;
-				fi
-				echo "$1: [UPDATING]"
-				rm -rf "$folder/*"
-				#mkdir "$folder"
-				git clone --quiet --no-checkout $2 "$folder/git"
-				cd "$folder/git"
-				if [ -n "$3" ]
-				then
-					git sparse-checkout set --no-cone "$3"
-				fi
-				if [ -n "$4" ]
-				then
-					git checkout -q $4
-				else
-					git checkout -q
-				fi
-				cd "$folder"
-				mv "$folder/git/$3/"* "$folder/"
-				rm -rf "$folder/git/"
-				if [ -n "$4" ]
-				then
-					echo "$2 $3 $4" > .extrinsic-source
-				else
-					echo "$2 $3" > .extrinsic-source
-				fi
-				echo $headcommit > .extrinsic-hashcommit
-				cd $origin
-			fi
+			do_update "$name" "$repository" "$subfolder" "$branch" "$folder"
+			cd "$origin"
 		fi
 	fi
 }
 
 function svn_modifications {
+	if [ $clean_arg = 1 ]
+	then
+		return 1
+	fi
 	local is_modified=1 #false
 	# svn info $1 return error code in $? if $1 is not an svn repository
 	svn info $1 > /dev/null 2>&1
@@ -99,7 +121,12 @@ function svn_modifications {
 }
 
 function repo_exists {
-	curl -s -o /dev/null --head -w "%{http_code}" $1
+	if [ -n "$1" ]
+	then
+		curl -s -o /dev/null --head -w "%{http_code}" $1
+	else
+		echo 400
+	fi
 }
 
 function repo_head {
@@ -110,35 +137,71 @@ function repo_branch {
 	git ls-remote -q $1 2> /dev/null | grep "refs/heads/$2" | (read hash branch; echo $hash)
 }
 
-if [ -r .extrinsic-source ]
-then
-	while read repository subfolder
-	do
-		update . $repository $subfolder
-	done < .extrinsic-source
-	# handle last line
-	if [ -n "$repository" ]
+function update_source {
+	local source="$1"
+	local name="$2"
+	if [ -r "$source" ]
 	then
-		update . $repository $subfolder
+		while read repository subfolder branch
+		do
+			update "$name" "$repository" "$subfolder" "$branch"
+		done < "$source"
 	fi
-	cd .
-else
+}
+
+function print_usage {
+	echo "OPTIONS:
+	-c, --clean    Update from repository ignoring and overwriting any SVN changes
+	-r, --refresh  Update from repository without checking .extrinsic-hashcommit
+	-f, --force    Same as --clean --refresh"
+}
+
+# Transform long options to short ones
+for arg in "$@"; do
+	shift
+	case "$arg" in
+		'--clean')  set -- "$@" '-c'   ;;
+		'--refresh') set -- "$@" '-r'  ;;
+		'--force')  set -- "$@" '-f'   ;;
+		*)          set -- "$@" "$arg" ;;
+	esac
+done
+
+# Default behavior
+clean_arg=0;
+refresh_arg=0;
+
+# Parse short options
+OPTIND=1
+while getopts ":hcrf" opt
+do
+  case "$opt" in
+    'h') print_usage; exit 0 ;;
+    'c') clean_arg=1 ;;
+    'r') refresh_arg=1 ;;
+    'f') clean_arg=1;refresh_arg=1 ;;
+    '?') print_usage >&2; exit 1 ;;
+  esac
+done
+shift $(expr $OPTIND - 1) # remove options from positional parameters
+
+arg_count=0;
+for arg in "$@"; do
+	if [ -d ./"$arg" ]
+	then
+		arg_count=$arg_count+1;
+		source="${arg%/}"/.extrinsic-source
+		update_source "$source" "${source%/.extrinsic-source}"
+	fi
+done
+
+if [ $arg_count = 0 ]
+then
+	# read and execute
+	update_source .extrinsic-source .
+
 	for source in */.extrinsic-source
 	do
-		if [ -r "$source" ]
-		then
-			while read repository subfolder
-			do
-				update ${source%/.extrinsic-source} $repository $subfolder
-			done < "$source"
-			# handle last line
-			if [ -n "$repository" ]
-			then
-				update ${source%/.extrinsic-source} $repository $subfolder
-			fi
-		else
-			echo "Error: Can't read " $source
-			exit 1
-		fi
+		update_source "$source" "${source%/.extrinsic-source}"
 	done
 fi
