@@ -10,33 +10,28 @@ function do_update {
 	local branch="$4"
 	local folder="$5"
 
+	if [ -n "$branch" ]
+	then
+		local headcommit=$(repo_branch "$repository" "$branch")
+		local headmsg="HEAD of branch $branch"
+	else
+		local headcommit=$(repo_head "$repository")
+		local headmsg="HEAD"
+	fi
+
 	if [ $refresh_arg = 0 ]
 	then
-		if [ -n "$branch" ]
+		if [ -f "$folder/.extrinsic-hashcommit" ]
 		then
-			local headcommit=$(repo_branch "$repository" "$branch")
-			if [ -f "$folder/.extrinsic-hashcommit" ]
+			read local_hashcommit < "$folder/.extrinsic-hashcommit"
+			if [ "$local_hashcommit" = "$headcommit" ]
 			then
-				read local_hashcommit < "$folder/.extrinsic-hashcommit"
-				if [ "$local_hashcommit" = "$headcommit" ]
-				then
-					echo "$name: [NO UPDATE] Already at HEAD of branch $branch"
-					return;
-				fi
-			fi
-		else
-			local headcommit=$(repo_head "$repository")
-			if [ -f "$folder/.extrinsic-hashcommit" ]
-			then
-				read local_hashcommit < "$folder/.extrinsic-hashcommit"
-				if [ "$local_hashcommit" = "$headcommit" ]
-				then
-					echo "$name: [NO UPDATE] Already at HEAD"
-					return;
-				fi
+				echo "$name: [NO UPDATE] Already at $headmsg"
+				return;
 			fi
 		fi
 	fi
+
 	if [ -d "$folder" ]
 	then
 		if svn_modifications "$folder"
